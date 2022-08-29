@@ -60,11 +60,11 @@
     {"Ip":"xxx.xx.xx.x","Url":"/api/values","Datetime":"2020-01-06 18:02:19","Date":"2020-01-06","Week":"周一"}
 
   
-3、全部请求与响应日志    
+3、用户API访问日志    
     
-    开启方式：appsettings.json -> Middlewar -> RequestResponseLog 节点为true。  
-    文件路径：web目录下，Log/RequestIpInfoLog.log。  
-    功能描述：记录项目启动后客户端所有的请求和响应日志，包括url参数、body以及相应json。  
+    开启方式：appsettings.json -> Middlewar -> RecordAccessLogs 节点为true。  
+    文件路径：web目录下，Log/RecordAccessLogs_{日期}.log。  
+    功能描述：记录项目启动后客户端所有的API访问日志，包括参数、body以及用户信息。  
 
      
 4、服务层请求响应AOP日志    
@@ -88,7 +88,7 @@
 
   ## 三、控制台信息展示
 
-  <img src="http://apk.neters.club/images/2020-05-09_182758.png" alt="配置" width="800" >
+  <img src="https://img.neters.club/doc/2020-05-09_182758.png" alt="配置" width="800" >
 
 
 
@@ -212,7 +212,7 @@ http {
     #access_log  logs/host.access.log  main;
     location / {
       root html;
-      proxy_pass http://localhost:8081;
+      proxy_pass http://localhost:9291;
       proxy_http_version 1.1;
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection keep-alive;
@@ -253,7 +253,7 @@ http {
     location /api/ {
       rewrite ^.+apb/?(.*)$ /$1 break;
       include uwsgi_params;
-      proxy_pass http://localhost:8081;
+      proxy_pass http://localhost:9291;
       proxy_http_version 1.1;
       proxy_set_header Upgrade $http_upgrade;
       #proxy_set_header Connection "upgrade";
@@ -265,7 +265,7 @@ http {
     location /api2/ {
       rewrite ^.+apb/?(.*)$ /$1 break;
       include uwsgi_params;
-      proxy_pass http://localhost:8081;
+      proxy_pass http://localhost:9291;
       proxy_http_version 1.1;
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection "upgrade";
@@ -276,7 +276,7 @@ http {
 
     location /images/ {
       include uwsgi_params;
-      proxy_pass http://localhost:8081;
+      proxy_pass http://localhost:9291;
       proxy_http_version 1.1;
       proxy_set_header Upgrade $http_upgrade;
       #proxy_set_header Connection "upgrade";
@@ -361,7 +361,7 @@ http {
     location /api {
       rewrite ^.+apb/?(.*)$ /$1 break;
       include uwsgi_params;
-      proxy_pass http://localhost:8081;
+      proxy_pass http://localhost:9291;
       proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
@@ -369,7 +369,7 @@ http {
 
     location /images {
       include uwsgi_params;
-      proxy_pass http://localhost:8081;
+      proxy_pass http://localhost:9291;
       proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }

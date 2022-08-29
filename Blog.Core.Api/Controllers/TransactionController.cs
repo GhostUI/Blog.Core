@@ -103,6 +103,24 @@ namespace Blog.Core.Controllers
             return await _guestbookServices.TestTranInRepository();
         }
 
+        [HttpGet]
+        public async Task<bool> GetTestTranPropagation()
+        {
+            return await _guestbookServices.TestTranPropagation();
+        }
+
+        [HttpGet]
+        public async Task<bool> GetTestTranPropagationNoTran()
+        {
+            return await _guestbookServices.TestTranPropagationNoTran();
+        }
+
+        [HttpGet]
+        public async Task<bool> GetTestTranPropagationTran()
+        {
+            return await _guestbookServices.TestTranPropagationTran();
+        }
+
         // POST: api/Transaction
         [HttpPost]
         public void Post([FromBody] string value)
@@ -115,7 +133,11 @@ namespace Blog.Core.Controllers
         {
         }
 
-        // DELETE: api/ApiWithActions/5
+        /// <summary>
+        /// 测试事务在AOP中的使用
+        /// </summary>
+        /// <param name="id"></param>
+        /// <returns></returns>
         [HttpDelete("{id}")]
         public async Task<bool> Delete(int id)
         {

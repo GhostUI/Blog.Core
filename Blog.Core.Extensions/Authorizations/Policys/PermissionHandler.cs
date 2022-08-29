@@ -1,4 +1,5 @@
-﻿using Blog.Core.Common.Helper;
+﻿using Blog.Core.Common;
+using Blog.Core.Common.Helper;
 using Blog.Core.IServices;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -6,10 +7,13 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
+using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Security.Claims;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Blog.Core.Common.HttpContextUser;
+using Blog.Core.Model;
 
 namespace Blog.Core.AuthHelper
 {
@@ -22,8 +26,11 @@ namespace Blog.Core.AuthHelper
         /// 验证方案提供对象
         /// </summary>
         public IAuthenticationSchemeProvider Schemes { get; set; }
+
         private readonly IRoleModulePermissionServices _roleModulePermissionServices;
         private readonly IHttpContextAccessor _accessor;
+        private readonly ISysUserInfoServices _userServices;
+        private readonly IUser _user;
 
         /// <summary>
         /// 构造函数注入
@@ -31,9 +38,13 @@ namespace Blog.Core.AuthHelper
         /// <param name="schemes"></param>
         /// <param name="roleModulePermissionServices"></param>
         /// <param name="accessor"></param>
-        public PermissionHandler(IAuthenticationSchemeProvider schemes, IRoleModulePermissionServices roleModulePermissionServices, IHttpContextAccessor accessor)
+        /// <param name="userServices"></param>
+        /// <param name="user"></param>
+        public PermissionHandler(IAuthenticationSchemeProvider schemes, IRoleModulePermissionServices roleModulePermissionServices, IHttpContextAccessor accessor, ISysUserInfoServices userServices, IUser user)
         {
             _accessor = accessor;
+            _userServices = userServices;
+            _user = user;
             Schemes = schemes;
             _roleModulePermissionServices = roleModulePermissionServices;
         }
@@ -43,6 +54,7 @@ namespace Blog.Core.AuthHelper
         {
             var httpContext = _accessor.HttpContext;
 
+            // 获取系统中所有的角色和菜单的关系集合
             if (!requirement.Permissions.Any())
             {
                 var data = await _roleModulePermissionServices.RoleModuleMaps();
@@ -72,14 +84,24 @@ namespace Blog.Core.AuthHelper
                                 Role = item.Role?.Name.ObjToString(),
                             }).ToList();
                 }
+
                 requirement.Permissions = list;
             }
 
-            //请求Url
             if (httpContext != null)
             {
                 var questUrl = httpContext.Request.Path.Value.ToLower();
-                //判断请求是否停止
+
+                // 整体结构类似认证中间件UseAuthentication的逻辑，具体查看开源地址
+                // https://github.com/dotnet/aspnetcore/blob/master/src/Security/Authentication/Core/src/AuthenticationMiddleware.cs
+                httpContext.Features.Set<IAuthenticationFeature>(new AuthenticationFeature
+                {
+                    OriginalPath = httpContext.Request.Path,
+                    OriginalPathBase = httpContext.Request.PathBase
+                });
+
+                // Give any IAuthenticationRequestHandler schemes a chance to handle the request
+                // 主要作用是: 判断当前是否需要进行远程验证，如果是就进行远程验证
                 var handlers = httpContext.RequestServices.GetRequiredService<IAuthenticationHandlerProvider>();
                 foreach (var scheme in await Schemes.GetRequestHandlerSchemesAsync())
                 {
@@ -89,16 +111,21 @@ namespace Blog.Core.AuthHelper
                         return;
                     }
                 }
+
+
                 //判断请求是否拥有凭据，即有没有登录
                 var defaultAuthenticate = await Schemes.GetDefaultAuthenticateSchemeAsync();
                 if (defaultAuthenticate != null)
                 {
                     var result = await httpContext.AuthenticateAsync(defaultAuthenticate.Name);
-                    //result?.Principal不为空即登录成功
-                    if (result?.Principal != null)
-                    {
 
-                        httpContext.User = result.Principal;
+                    // 是否开启测试环境
+                    var isTestCurrent = Appsettings.app(new string[] { "AppSettings", "UseLoadTest" }).ObjToBool();
+
+                    //result?.Principal不为空即登录成功
+                    if (result?.Principal != null || isTestCurrent)
+                    {
+                        if (!isTestCurrent) httpContext.User = result.Principal;
 
                         // 获取当前用户的角色信息
                         var currentUserRoles = new List<string>();
@@ -143,6 +170,7 @@ namespace Blog.Core.AuthHelper
                             return;
                         }
 
+                        // 判断token是否过期，过期则重新登录
                         var isExp = false;
                         // ids4和jwt切换
                         // ids4
@@ -155,18 +183,31 @@ namespace Blog.Core.AuthHelper
                             // jwt
                             isExp = (httpContext.User.Claims.SingleOrDefault(s => s.Type == ClaimTypes.Expiration)?.Value) != null && DateTime.Parse(httpContext.User.Claims.SingleOrDefault(s => s.Type == ClaimTypes.Expiration)?.Value) >= DateTime.Now;
                         }
-                        if (isExp)
+
+                        if (!isExp)
                         {
-                            context.Succeed(requirement);
-                        }
-                        else
-                        {
-                            context.Fail();
+                            context.Fail(new AuthorizationFailureReason(this, "授权已过期,请重新授权"));
                             return;
                         }
+
+                        //校验签发时间
+                        var value = httpContext.User.Claims.SingleOrDefault(s => s.Type == JwtRegisteredClaimNames.Iat)?.Value;
+                        if (value != null)
+                        {
+                            var user = await _userServices.QueryById(_user.ID, true);
+                            if (user.CriticalModifyTime > value.ObjToDate())
+                            {
+                                _user.MessageModel = new ApiResponse(StatusCode.CODE401, "很抱歉,授权已失效,请重新授权").MessageModel;
+                                context.Fail(new AuthorizationFailureReason(this, _user.MessageModel.msg));
+                                return;
+                            }
+                        }
+
+                        context.Succeed(requirement);
                         return;
                     }
                 }
+
                 //判断没有登录时，是否访问登录的url,并且是Post请求，并且是form表单提交类型，否则为失败
                 if (!(questUrl.Equals(requirement.LoginPath.ToLower(), StringComparison.Ordinal) && (!httpContext.Request.Method.Equals("POST") || !httpContext.Request.HasFormContentType)))
                 {
